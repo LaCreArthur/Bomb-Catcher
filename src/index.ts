@@ -1,18 +1,20 @@
 import * as PIXI from 'pixi.js';
+
 import { gsap } from 'gsap';
+import { Sound } from '@pixi/sound';
 
 // Game configuration
 const CONFIG = {
     WIDTH: 800,
     HEIGHT: 600,
-    INITIAL_SPAWN_RATE: 1,
-    INITIAL_SPEED: 2,
+    INITIAL_SPAWN_RATE: 0.5,
+    INITIAL_SPEED: 1.5,
     LIVES: 9,
-    SPAWN_RATE_INCREASE: 0.02,
-    SPEED_INCREASE: 0.05,
+    SPAWN_RATE_INCREASE: 0.005,
+    SPEED_INCREASE: 0.02,
+    FLOOR_OFFSET: 50,
 };
 
-// UI Manager for text and buttons
 class UIManager {
     private stage: PIXI.Container;
     private texts: Map<string, PIXI.Text> = new Map();
@@ -64,6 +66,7 @@ class Game {
     private ui: UIManager;
     private idleTextures: PIXI.Texture[] = [];
     private explosionTextures: PIXI.Texture[] = [];
+    private sounds: { [key: string]: Sound } = {};
 
     constructor(app: PIXI.Application) {
         this.app = app;
@@ -79,13 +82,51 @@ class Game {
         this.ui.createText('speed', `Speed: ${this.speed.toFixed(2)}`, 10, 100);
     }
 
+    private async setupFloor() {
+        try {
+            const floorTexture = await PIXI.Assets.load('assets/floor.png');
+            const floor = new PIXI.Sprite(floorTexture);
+            floor.width = CONFIG.WIDTH;
+            floor.height = CONFIG.FLOOR_OFFSET;
+            floor.y = CONFIG.HEIGHT - CONFIG.FLOOR_OFFSET;
+            this.app.stage.addChild(floor);
+        } catch (error) {
+            console.error('Failed to load floor texture:', error);
+        }
+    }
+
+    private async customizeCursor() {
+        try {
+            const cursorTexture = await PIXI.Assets.load('assets/cursor.png');
+            this.app.renderer.events.cursorStyles['pointer'] = `url(${cursorTexture.source.resource.src}), auto`;
+        } catch (error) {
+            console.error('Failed to load cursor texture:', error);
+        }
+    }
+
     private async preloadAssets() {
-        this.idleTextures = await Promise.all(
-            Array.from({ length: 6 }, (_, i) => PIXI.Assets.load(`assets/bomb/Bomb_3_Idle_00${i}.png`))
-        );
-        this.explosionTextures = await Promise.all(
-            Array.from({ length: 10 }, (_, i) => PIXI.Assets.load(`assets/bomb/Bomb_3_Explosion_00${i}.png`))
-        );
+        try {
+            const [idle, explosion] = await Promise.all([
+                Promise.all(Array.from({ length: 6 }, (_, i) => PIXI.Assets.load(`assets/bomb/Bomb_3_Idle_00${i}.png`))),
+                Promise.all(Array.from({ length: 10 }, (_, i) => PIXI.Assets.load(`assets/bomb/Bomb_3_Explosion_00${i}.png`))),
+                PIXI.Assets.load('assets/floor.png'),
+                PIXI.Assets.load('assets/cursor.png'),
+                Sound.from('assets/catch.mp3'),
+                Sound.from('assets/explode.mp3'),
+                Sound.from('assets/gameover.mp3'),
+            ]);
+            this.idleTextures = idle;
+            this.explosionTextures = explosion;
+            this.sounds = {
+                catch: Sound.from('assets/catch.mp3'),
+                explode: Sound.from('assets/explode.mp3'),
+                gameover: Sound.from('assets/gameover.mp3'),
+            };
+            this.sounds.explode.volume = 0.66;
+            await Promise.all([this.setupFloor(), this.customizeCursor()]);
+        } catch (error) {
+            console.error('Asset loading failed:', error);
+        }
     }
 
     private showStartScreen() {
@@ -120,6 +161,7 @@ class Game {
         this.handleBomb(bomb, () => {
             this.score++;
             this.increaseDifficulty();
+            this.sounds.catch.play();
         });
     }
 
@@ -127,6 +169,7 @@ class Game {
         if (bomb.hasExploded) return;
         this.handleBomb(bomb, () => {
             this.lives = Math.max(0, this.lives - 1);
+            this.sounds.explode.play();
             if (this.lives <= 0) this.endGame();
         });
     }
@@ -156,8 +199,10 @@ class Game {
     private endGame() {
         this.bombs.forEach(bomb => bomb.explode());
         this.isPlaying = false;
-        this.ui.createText('gameOver', `Game Over! Score: ${this.score}`, CONFIG.WIDTH / 2, CONFIG.HEIGHT / 2 - 50, { fill: '#ff0000', fontSize: 48, align: 'center' });
+        const gameOver = this.ui.createText('gameOver', `Game Over! Score: ${this.score}`, CONFIG.WIDTH / 2, CONFIG.HEIGHT / 2 - 50, { fill: '#ff0000', fontSize: 48 });
+        gameOver.anchor.set(0.5);
         this.ui.createButton('Replay', CONFIG.WIDTH / 2, CONFIG.HEIGHT / 2 + 50, () => this.restartGame());
+        this.sounds.gameover.play();
     }
 
     private restartGame() {
@@ -165,6 +210,7 @@ class Game {
         this.bombs = [];
         this.resetState();
         this.setupUI();
+        this.setupFloor();
         this.isPlaying = true;
     }
 
@@ -211,7 +257,7 @@ class Bomb extends PIXI.AnimatedSprite {
 
         if (this.x < 0) this.vx = Math.abs(this.vx);
         else if (this.x > CONFIG.WIDTH) this.vx = -Math.abs(this.vx);
-        if (this.y > CONFIG.HEIGHT) this.game.explodeBomb(this);
+        if (this.y > CONFIG.HEIGHT - CONFIG.FLOOR_OFFSET) this.game.explodeBomb(this);
     }
 
     public explode() {
@@ -230,3 +276,4 @@ class Bomb extends PIXI.AnimatedSprite {
     document.getElementById('game')!.appendChild(app.canvas);
     new Game(app);
 })();
+
