@@ -6,31 +6,39 @@ class Game {
     private bombs: Bomb[] = [];
     private lives: number = 9;
     private score: number = 0;
-    private spawnRate: number = 0.3; // Bombs per second
-    private speed: number = 2; // Initial speed
+    private currentSpawnRate: number = 1; // Bombs per second
+    private currentSpeed: number = 2; // Initial speed
+    private initialSpawnRate: number = 1;
+    private initialSpeed: number = 2;
+    private isPlaying: boolean = false;
+    // UI elements
     private scoreText: PIXI.Text;
     private livesText: PIXI.Text;
+    private spawnRateText: PIXI.Text;
+    private speedText: PIXI.Text;
     // Textures for animations
     private idleTextures: PIXI.Texture[] = [];
     private explosionTextures: PIXI.Texture[] = [];
 
     constructor(app: PIXI.Application) {
         this.app = app;
-        this.scoreText = new PIXI.Text({ text: `Score: ${this.score}`, style: { fill: '#ffffff' } });
-        this.livesText = new PIXI.Text({ text: `Lives: ${this.lives}`, style: { fill: '#ffffff' } });
+        this.scoreText = this.createText(`Score: ${this.score}`, 10, 10);
+        this.livesText = this.createText(`Lives: ${this.lives}`, 10, 40);
+        this.spawnRateText = this.createText(`Spawn Rate: ${this.currentSpawnRate.toFixed(2)}`, 10, 70);
+        this.speedText = this.createText(`Speed: ${this.currentSpeed.toFixed(2)}`, 10, 100);
         this.setupUI();
-        console.log('Game constructed');
-        this.startGame();
+        this.showStartScreen();
+    }
+
+    private createText(content: string, x: number, y: number): PIXI.Text {
+        const text = new PIXI.Text({ text: content, style: { fill: '#ffffff' } });
+        text.x = x;
+        text.y = y;
+        return text;
     }
 
     private setupUI() {
-        this.scoreText.x = 10;
-        this.scoreText.y = 10;
-        this.app.stage.addChild(this.scoreText);
-
-        this.livesText.x = 10;
-        this.livesText.y = 40;
-        this.app.stage.addChild(this.livesText);
+        this.app.stage.addChild(this.scoreText, this.livesText, this.spawnRateText, this.speedText);
     }
 
     private async preloadAssets() {
@@ -39,30 +47,44 @@ class Game {
             Array.from({ length: 6 }, (_, i) => PIXI.Assets.load(`assets/bomb/Bomb_3_Idle_00${i}.png`))
         );
         this.explosionTextures = await Promise.all(
-            Array.from({ length: 9 }, (_, i) => PIXI.Assets.load(`assets/bomb/Bomb_3_Explosion_00${i}.png`))
+            Array.from({ length: 10 }, (_, i) => PIXI.Assets.load(`assets/bomb/Bomb_3_Explosion_00${i}.png`))
         );
         console.log('Assets preloaded');
     }
 
-    private startGame() {
+    private showStartScreen() {
         this.preloadAssets().then(() => {
-            console.log('Starting ticker');
-            this.app.ticker.add((delta) => this.update(delta));
-            this.spawnBomb();
+            const startButton = this.createText('Start', 400, 300);
+            startButton.anchor.set(0.5);
+            startButton.interactive = true;
+            startButton.cursor = 'pointer';
+            startButton.on('pointerdown', () => {
+                this.app.stage.removeChild(startButton);
+                this.startGame();
+            });
+            this.app.stage.addChild(startButton);
         });
     }
 
+    private startGame() {
+        this.resetGameState();
+        this.app.ticker.add((delta) => this.update(delta));
+        this.isPlaying = true;
+        console.log('Game started');
+    }
+
     private update(ticker: PIXI.Ticker) {
+        if (!this.isPlaying) return;
         this.bombs.forEach((bomb) => bomb.update(ticker));
-        if (Math.random() < this.spawnRate * (ticker.deltaTime / 60)) {
-            console.log('Spawning new bomb');
+        if (Math.random() < this.currentSpawnRate * (ticker.deltaTime / 60)) {
             this.spawnBomb();
         }
+        this.updateUI();
     }
 
     private spawnBomb() {
-        // Angle between -30° and 30°
-        const bomb = new Bomb(this, this.idleTextures, this.explosionTextures, this.speed, Math.random() * 60 - 30, this.app.screen.width, this.app.screen.height); 
+        if (!this.isPlaying) return;
+        const bomb = new Bomb(this, this.idleTextures, this.explosionTextures, this.currentSpeed, Math.random() * 60 - 30, this.app.screen.width, this.app.screen.height);
         bomb.width = 50;
         bomb.height = 50;
         this.bombs.push(bomb);
@@ -71,134 +93,132 @@ class Game {
     }
 
     public catchBomb(bomb: Bomb) {
-        console.log('Catching bomb');
-        bomb.explode();
-        bomb.onComplete = () => {
-            this.app.stage.removeChild(bomb);
-            this.bombs = this.bombs.filter((b) => b !== bomb);
+        this.handleBombExplosion(bomb, () => {
             this.score += 1;
-            this.scoreText.text = `Score: ${this.score}`;
             this.increaseDifficulty();
+            this.updateUI();
             console.log('Bomb caught, score updated');
-        };
+        });
     }
 
-    public explodeBomb(bomb: Bomb) { 
-        if (bomb.hasExploded) return; // Prevent multiple explosions
-        console.log('Bomb exploding');
+    public explodeBomb(bomb: Bomb) {
+        if (bomb.hasExploded) return;
+        this.handleBombExplosion(bomb, () => {
+            this.lives = Math.max(0, this.lives - 1); // Prevent negative lives
+            if (this.lives <= 0) this.endGame();
+            this.updateUI();
+            console.log('Bomb exploded, lives updated');
+        });
+    }
+
+    private handleBombExplosion(bomb: Bomb, callback: () => void) {
         bomb.explode();
         bomb.onComplete = () => {
-            this.bombs = this.bombs.filter((b) => b !== bomb);
             this.app.stage.removeChild(bomb);
-            this.lives -= 1;
-            this.livesText.text = `Lives: ${this.lives}`;
-            if (this.lives <= 0) this.endGame();
-            console.log('Bomb exploded, lives updated');
+            this.bombs = this.bombs.filter((b) => b !== bomb);
+            callback();
         };
     }
 
     private increaseDifficulty() {
-        this.spawnRate += 0.02; // More bombs
-        this.speed += 0.05; // Faster
-        console.log(`Difficulty increased: spawnRate=${this.spawnRate}, speed=${this.speed}`);
+        this.currentSpawnRate += 0.02; // More bombs
+        this.currentSpeed += 0.05; // Faster
+        console.log(`Difficulty increased: spawnRate=${this.currentSpawnRate}, speed=${this.currentSpeed}`);
+    }
+
+    private updateUI() {
+        this.scoreText.text = `Score: ${this.score}`;
+        this.livesText.text = `Lives: ${this.lives}`;
+        this.spawnRateText.text = `Spawn Rate: ${this.currentSpawnRate.toFixed(2)}`;
+        this.speedText.text = `Speed: ${this.currentSpeed.toFixed(2)}`;
     }
 
     private endGame() {
-        this.app.ticker.stop();
-        const gameOverText = new PIXI.Text({
-            text: `Game Over! Score: ${this.score}`,
-            style: { fill: '#ff0000', fontSize: 48 },
-        });
-        gameOverText.x = 400 - gameOverText.width / 2;
-        gameOverText.y = 250 - gameOverText.height / 2; // Adjusted for replay button
+        this.bombs.forEach(bomb => bomb.explode());
+        this.isPlaying = false;
+
+        const gameOverText = this.createText(`Game Over! Score: ${this.score}`, 400, 250);
+        gameOverText.anchor.set(0.5);
+        gameOverText.style = { fill: '#ff0000', fontSize: 48 };
         this.app.stage.addChild(gameOverText);
 
-        // Add replay button
-        const replayButton = new PIXI.Text({
-            text: 'Replay',
-            style: { fill: '#ffffff', fontSize: 36 },
-        });
-        replayButton.x = 400 - replayButton.width / 2;
-        replayButton.y = 350;
+        const replayButton = this.createText('Replay', 400, 350);
+        replayButton.anchor.set(0.5);
+        replayButton.style = { fill: '#ffffff', fontSize: 36 };
         replayButton.interactive = true;
         replayButton.cursor = 'pointer';
         replayButton.on('pointerdown', () => this.restartGame());
         this.app.stage.addChild(replayButton);
-
         console.log('Game over');
     }
 
     private restartGame() {
-        // Reset game state
+        this.app.stage.removeChildren();
+        this.bombs = [];
+        this.resetGameState();
+        this.setupUI();
+        this.isPlaying = true;
+        console.log('Game restarted');
+    }
+
+    private resetGameState() {
         this.lives = 9;
         this.score = 0;
-        this.spawnRate = 0.3;
-        this.speed = 2;
-        this.livesText.text = `Lives: ${this.lives}`;
-        this.scoreText.text = `Score: ${this.score}`;
-        this.bombs.forEach(bomb => this.app.stage.removeChild(bomb));
-        this.bombs = [];
-        this.app.stage.removeChildren(); // Clear stage
-        this.setupUI(); // Re-add UI
-        this.app.ticker.start();
-        this.spawnBomb();
-        console.log('Game restarted');
+        this.currentSpawnRate = this.initialSpawnRate;
+        this.currentSpeed = this.initialSpeed;
+        this.updateUI();
     }
 }
 
 class Bomb extends PIXI.AnimatedSprite {
     private vx: number;
     private vy: number;
-    private screenWidth: number = 800;
-    private screenHeight: number = 600;
+    private screenWidth: number;
+    private screenHeight: number;
     private game: Game;
     private explosionTextures: PIXI.Texture[];
-    public hasExploded: boolean = false; // State to prevent multiple explosions
+    public hasExploded: boolean = false;
     public onComplete?: () => void;
 
     constructor(game: Game, textures: PIXI.Texture[], explosionTextures: PIXI.Texture[], speed: number, angle: number, screenWidth: number = 800, screenHeight: number = 600) {
         super(textures);
         this.game = game;
         this.explosionTextures = explosionTextures;
-        this.anchor.set(0.5); // Center the sprite
-        this.x = Math.random() * 800; // Random position at top
+        this.screenWidth = screenWidth;
+        this.screenHeight = screenHeight;
+        this.anchor.set(0.5);
+        this.x = Math.random() * screenWidth;
         this.y = 0;
         this.vx = speed * Math.sin((angle * Math.PI) / 180);
         this.vy = speed * Math.cos((angle * Math.PI) / 180);
-        this.screenWidth = screenWidth;
-        this.screenHeight = screenHeight;
         this.interactive = true;
-        this.cursor = 'pointer'; // Cursor on hover
+        this.cursor = 'pointer';
         this.on('pointerdown', () => this.game.catchBomb(this));
-        // Animations
-        this.animationSpeed = 1; // Idle animation speed
+        this.animationSpeed = 1;
         this.loop = true;
         this.play();
-        this.on('complete', () => {
-            if (this.onComplete) this.onComplete();
-        });
+        this.on('complete', () => this.onComplete?.());
     }
 
     update(ticker: PIXI.Ticker) {
-        super.update(ticker); // Update animation
+        super.update(ticker);
         this.x += this.vx * ticker.deltaTime;
         this.y += this.vy * ticker.deltaTime;
-        this.rotation += 0.01 * ticker.deltaTime; // Bomb rotation
+        this.rotation += 0.01 * ticker.deltaTime;
 
-        // Bounce on left and right edges
         if (this.x < 0) {
-            this.x = 0; // Reposition at edge
-            this.vx = -this.vx; // Reverse horizontal direction
+            this.x = 0;
+            this.vx = -this.vx;
         } else if (this.x > this.screenWidth) {
-            this.x = this.screenWidth; // Reposition at edge
-            this.vx = -this.vx; // Reverse horizontal direction
+            this.x = this.screenWidth;
+            this.vx = -this.vx;
         }
 
-        if (this.y > this.screenHeight) this.game.explodeBomb(this); // Bottom of screen
+        if (this.y > this.screenHeight) this.game.explodeBomb(this);
     }
 
     public explode() {
-        if (this.hasExploded) return; // Prevent multiple explosions
+        if (this.hasExploded) return;
         this.hasExploded = true;
         this.textures = this.explosionTextures;
         this.loop = false;
