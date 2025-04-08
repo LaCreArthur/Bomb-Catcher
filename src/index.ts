@@ -44,28 +44,23 @@ const config = {
 };
 
 // --- Types ---
-
-/** Type alias for loaded texture assets */
 type GameTextures = {
 	idle: Texture[];
 	explosion: Texture[];
 	floor: Texture;
 };
 
-/** Type alias for loaded sound assets */
 type GameSounds = {
 	catch?: Sound;
 	explode?: Sound;
 	gameover?: Sound;
 };
 
-/** Combined loaded assets */
 type LoadedAssets = {
 	textures: GameTextures;
 	sounds: GameSounds;
 };
 
-/** Represents the possible states of the game */
 enum GameState {
 	Loading,
 	Ready, // Waiting to start
@@ -73,11 +68,8 @@ enum GameState {
 	GameOver,
 }
 
-// --- Utility Classes ---
-
-/** Handles loading of all game assets */
+// --- Asset Loader ---
 class AssetLoader {
-	/** Loads textures and sounds */
 	static async load(): Promise<LoadedAssets> {
 		try {
 			console.log('Loading assets...');
@@ -95,7 +87,6 @@ class AssetLoader {
 				floor: loadedTextures[config.assets.bombIdleFrames + config.assets.bombExplosionFrames],
 			};
 
-			// Load sounds (consider loading them on demand or earlier if needed)
 			const sounds: GameSounds = {
 				catch: Sound.from(config.assets.sounds.catch),
 				explode: Sound.from(config.assets.sounds.explode),
@@ -174,6 +165,7 @@ class Game {
 		this.assets = assets;
 		this.ui = new UIManager(app.stage);
 		this.setupUI();
+		this.setupFloor();
 		this.showStartScreen();
 	}
 
