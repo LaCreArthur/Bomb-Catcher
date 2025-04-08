@@ -1,6 +1,11 @@
 import { Application, Sprite, Texture, AnimatedSprite, Text, TextStyle, Ticker, Assets, Container, Point, Graphics } from 'pixi.js';
 import { gsap } from 'gsap';
+import { PixiPlugin } from 'gsap/PixiPlugin';
 import { Sound } from '@pixi/sound';
+
+// Register GSAP PixiPlugin
+gsap.registerPlugin(PixiPlugin);
+PixiPlugin.registerPIXI({ Application, Sprite, Texture, AnimatedSprite, Text, TextStyle, Container, Graphics });
 
 // --- Configuration ---
 const config = {
@@ -112,7 +117,7 @@ class UIManager {
 
 	// Reusable text styles
 	private static primaryTextStyle = new TextStyle({
-		fontFamily: 'Arial', // Choose a suitable font
+		fontFamily: 'Arial',
 		fontSize: 24,
 		fontWeight: 'bold',
 		fill: '#ffffff',
@@ -161,7 +166,6 @@ class UIManager {
 		this.stage = stage;
 	}
 
-	/** Creates and adds a text element */
 	createText(id: string, content: string, x: number, y: number, style: TextStyle = UIManager.primaryTextStyle, anchor: Point = new Point(0, 0)): Text {
 		if (this.elements.has(id)) this.elements.delete(id);
 
@@ -173,10 +177,9 @@ class UIManager {
 		return text;
 	}
 
-	/** Creates and adds a button (text element with interaction) */
 	createButton(id: string, label: string, x: number, y: number, onClick: () => void): Text {
 		const button = this.createText(id, label, x, y, UIManager.buttonTextStyle, new Point(0.5, 0.5));
-		button.eventMode = 'static'; // New PIXI v8 event mode
+		button.eventMode = 'static';
 		button.cursor = 'pointer';
 		button.on('pointerdown', onClick);
 
@@ -192,6 +195,11 @@ class UIManager {
 		if (element && element instanceof Text) element.text = content;
 	}
 
+	animateElement(id: string, animationProps: gsap.TweenVars) {
+		const element = this.elements.get(id);
+		if (element) gsap.to(element, animationProps);
+	}
+
 	clear() {
 		this.elements.forEach((element) => element.destroy());
 		this.elements.clear();
@@ -204,16 +212,14 @@ class UIManager {
 	}
 
 	showGameUI(initialScore: number, initialLives: number) {
-		this.createText('scoreLabel', `Score: ${initialScore}`, 20, 20, UIManager.primaryTextStyle);
-		this.createText('livesLabel', `Lives: ${initialLives}`, 20, 55, UIManager.primaryTextStyle);
+		this.createText('scoreLabel', `Score: ${initialScore}`, 70, 20, UIManager.primaryTextStyle, new Point(0.5, 0.5));
+		this.createText('livesLabel', `Lives: ${initialLives}`, 70, 55, UIManager.primaryTextStyle, new Point(0.5, 0.5));
 		// Optional: Display difficulty stats for debugging/info
 		this.createText('spawnRateLabel', `Spawn Rate: ...`, 20, 90, UIManager.secondaryTextStyle);
 		this.createText('speedLabel', `Speed: ...`, 20, 115, UIManager.secondaryTextStyle);
 	}
 
-	/** Displays the game over screen */
 	showGameOverScreen(finalScore: number, leaderboard: string, onReplayClick: () => void) {
-		// Optional: Dim background slightly
 		const overlay = new Graphics().rect(0, 0, config.canvas.width, config.canvas.height).fill({ color: 0x000000, alpha: 0.5 });
 		this.stage.addChild(overlay);
 		this.elements.set('gameOverOverlay', overlay); // Manage overlay
@@ -239,21 +245,85 @@ class UIManager {
 	}
 }
 
+class ScoreManager {
+	private _lives: number = config.game.initialLives;
+	private _score: number = 0;
+
+	constructor() {
+		this.reset();
+	}
+
+	reset() {
+		this._lives = config.game.initialLives;
+		this._score = 0;
+	}
+
+	increaseScore(points: number = 1) {
+		this._score += points;
+	}
+
+	loseLife() {
+		this._lives = Math.max(0, this._lives - 1);
+	}
+
+	isGameOver(): boolean {
+		return this._lives <= 0;
+	}
+
+	/** Saves the current score to the leaderboard in localStorage */
+	registerScore() {
+		try {
+			const scores = this.loadScores();
+			scores.push(this._score);
+			scores.sort((a, b) => b - a); // Sort descending
+			const updatedScores = scores.slice(0, config.leaderboard.maxEntries);
+			localStorage.setItem(config.leaderboard.storageKey, JSON.stringify(updatedScores));
+		} catch (error) {
+			console.error('Failed to save score to localStorage:', error);
+		}
+	}
+
+	/** Retrieves the formatted leaderboard string */
+	getLeaderboard(): string {
+		try {
+			const scores = this.loadScores();
+			if (scores.length === 0) return 'No scores yet!';
+			return scores.map((score, i) => `${(i + 1).toString().padStart(2)}. ${score.toString().padStart(6)}`).join('\n');
+		} catch (error) {
+			console.error('Failed to load scores from localStorage:', error);
+			return 'Error loading scores';
+		}
+	}
+
+	/** Loads scores from localStorage */
+	private loadScores(): number[] {
+		const storedScores = localStorage.getItem(config.leaderboard.storageKey);
+		return storedScores ? JSON.parse(storedScores) : [];
+	}
+
+	get lives(): number {
+		return this._lives;
+	}
+	get score(): number {
+		return this._score;
+	}
+}
+
 class Game {
 	private app: Application;
 	private assets: LoadedAssets;
 	private bombs: Bomb[] = [];
-	private lives: number = config.game.initialLives;
-	private score: number = 0;
 	private spawnRate: number = config.game.initialSpawnRate;
 	private speed: number = config.game.initialSpeed;
 	private isPlaying: boolean = false;
 	private ui: UIManager;
+	private scoreManager: ScoreManager;
 
 	constructor(app: Application, assets: LoadedAssets) {
 		this.app = app;
 		this.assets = assets;
 		this.ui = new UIManager(app.stage);
+		this.scoreManager = new ScoreManager();
 		this.ui.showStartScreen(() => this.startGame());
 		this.setupFloor();
 	}
@@ -276,7 +346,6 @@ class Game {
 		if (!this.isPlaying) return;
 		this.bombs.forEach((bomb) => bomb.update(ticker));
 		if (Math.random() < this.spawnRate * (ticker.deltaTime / 60)) this.spawnBomb();
-		this.updateUI();
 	}
 
 	private spawnBomb() {
@@ -295,8 +364,17 @@ class Game {
 	}
 
 	public catchBomb(bomb: Bomb) {
+		if (!this.isPlaying) return;
 		this.handleBomb(bomb, () => {
-			this.score++;
+			this.scoreManager.increaseScore();
+			this.ui.updateText('scoreLabel', `Score: ${this.scoreManager.score}`);
+			this.ui.animateElement('scoreLabel', {
+				pixi: { scale: 1.2 },
+				duration: 0.1,
+				yoyo: true,
+				repeat: 1,
+				ease: 'power1.inOut',
+			});
 			this.increaseDifficulty();
 			this.assets.sounds.catch?.play();
 			// Add catch animation
@@ -310,23 +388,34 @@ class Game {
 	}
 
 	public explodeBomb(bomb: Bomb) {
-		if (bomb.hasExploded) return;
+		if (bomb.hasExploded || !this.isPlaying) return;
 		this.handleBomb(bomb, () => {
-			this.lives = Math.max(0, this.lives - 1);
+			this.scoreManager.loseLife();
+			this.ui.updateText('livesLabel', `Lives: ${this.scoreManager.lives}`);
+			this.ui.animateElement('livesLabel', {
+				pixi: { scale: 0.8 },
+				duration: 0.1,
+				yoyo: true,
+				repeat: 1,
+				ease: 'power1.inOut',
+			});
 			this.assets.sounds.explode?.play();
-			this.shakeScreen();
-			if (this.lives <= 0) this.endGame();
+			this.screenShake();
+			if (this.scoreManager.isGameOver() && this.isPlaying) this.endGame();
 		});
 	}
 
-	private shakeScreen() {
-		gsap.to(this.app.stage.position, {
-			x: `+=${config.animation.screenShakeIntensity}`,
-			y: `+=${config.animation.screenShakeIntensity}`,
+	private screenShake(): void {
+		const intensity = config.animation.screenShakeIntensity;
+		gsap.to(this.app.stage, {
+			x: `random(-${intensity}, ${intensity})`, // GSAP random string
+			y: `random(-${intensity}, ${intensity})`,
 			duration: config.animation.screenShakeDuration,
+			repeat: 3, // Number of shakes
 			yoyo: true,
-			repeat: 1,
+			ease: 'power1.inOut',
 			onComplete: () => {
+				// Ensure stage returns exactly to 0,0
 				this.app.stage.position.set(0, 0);
 			},
 		});
@@ -338,63 +427,41 @@ class Game {
 			this.app.stage.removeChild(bomb);
 			this.bombs = this.bombs.filter((b) => b !== bomb);
 			callback();
-			this.updateUI();
 		};
 	}
 
 	private increaseDifficulty() {
 		this.spawnRate = Math.min(config.difficulty.maxSpawnRate, this.spawnRate + config.difficulty.spawnRateIncrease);
 		this.speed = Math.min(config.difficulty.maxSpeed, this.speed + config.difficulty.speedIncrease);
+		this.updateDifficultyUI();
 	}
 
-	private updateUI() {
-		this.ui.updateText('scoreLabel', `Score: ${this.score}`);
-		this.ui.updateText('livesLabel', `Lives: ${this.lives}`);
-		this.ui.updateText('spawnRateLabel', `Spawn Rate: ${this.spawnRate.toFixed(2)}`);
+	private updateDifficultyUI(): void {
+		this.ui.updateText('spawnRateLabel', `Spawn Rate: ${this.spawnRate.toFixed(2)}/s`);
 		this.ui.updateText('speedLabel', `Speed: ${this.speed.toFixed(2)}`);
 	}
 
 	private endGame() {
-		this.bombs.forEach((bomb) => bomb.explode());
 		this.isPlaying = false;
-		this.saveScore();
+		this.bombs.forEach((bomb) => bomb.explode());
+		this.scoreManager.registerScore();
 		this.assets.sounds.gameover?.play();
-		this.ui.showGameOverScreen(this.score, this.getLeaderboard(), () => this.restartGame());
+		this.ui.showGameOverScreen(this.scoreManager.score, this.scoreManager.getLeaderboard(), () => this.restartGame());
 	}
 
 	private restartGame() {
 		this.bombs = [];
 		this.resetState();
-		// this.setupFloor();
 		this.isPlaying = true;
 	}
 
 	private resetState() {
-		this.lives = config.game.initialLives;
-		this.score = 0;
+		this.scoreManager.reset();
 		this.spawnRate = config.game.initialSpawnRate;
 		this.speed = config.game.initialSpeed;
 		this.ui.clear();
-		this.ui.showGameUI(this.score, this.lives);
-	}
-
-	private saveScore() {
-		const scores = this.loadScores();
-		scores.push(this.score);
-		scores.sort((a, b) => b - a); // Sort descending
-		const updatedScores = scores.slice(0, config.leaderboard.maxEntries);
-		localStorage.setItem(config.leaderboard.storageKey, JSON.stringify(updatedScores));
-	}
-
-	private getLeaderboard(): string {
-		const scores = this.loadScores();
-		if (scores.length === 0) return 'No scores yet!';
-		return scores.map((score, i) => `${(i + 1).toString().padStart(2)}. ${score.toString().padStart(4)}`).join('\n');
-	}
-
-	private loadScores(): number[] {
-		const storedScores = localStorage.getItem(config.leaderboard.storageKey);
-		return storedScores ? JSON.parse(storedScores) : [];
+		this.ui.showGameUI(this.scoreManager.score, this.scoreManager.lives);
+		this.updateDifficultyUI();
 	}
 }
 
