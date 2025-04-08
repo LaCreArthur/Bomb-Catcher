@@ -14,10 +14,11 @@ module.exports = {
   },
   devServer: {
     static: path.join(__dirname, 'dist'),
+    hot: true,
     port: 9000
   },
   plugins: [
-    new HtmlWebpackPlugin({ template: './src/index.html' }),
+    new HtmlWebpackPlugin({ template: './src/index.html', title: 'Bomb Catcher' }),
     new CopyPlugin({ patterns: [{ from: 'assets', to: 'assets' }] })
   ]
 };
