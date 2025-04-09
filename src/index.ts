@@ -17,7 +17,7 @@ const config = {
 	// Game settings
 	initialLives: 9,
 	initialSpawnRate: 3.8, // Bombs per second at start
-	initialSpeed: 1.5, // Pixels per frame at start
+	initialSpeed: 2, // Pixels per frame at start
 	bombWidth: 80,
 	bombHeight: 80,
 	bombAngleVariance: 45, // Degrees +/- from vertical
@@ -297,14 +297,23 @@ class Bomb extends AnimatedSprite {
 
 	// Callbacks for bomb events
 	onCatch: () => void;
+	onHitFloor: (bomb: Bomb) => void;
 	onExplosionComplete: (bomb: Bomb) => void;
 
-	constructor(textures: Texture[], explosionTextures: Texture[], floorY: number, onCatch: () => void, onExplosionComplete: (bomb: Bomb) => void) {
+	constructor(
+		textures: Texture[],
+		explosionTextures: Texture[],
+		floorY: number,
+		onCatch: () => void,
+		onHitFloor: (bomb: Bomb) => void,
+		onExplosionComplete: (bomb: Bomb) => void,
+	) {
 		super(textures);
 		this.explosionTextures = explosionTextures;
 
 		this.floorY = floorY;
 		this.onCatch = onCatch;
+		this.onHitFloor = onHitFloor;
 		this.onExplosionComplete = onExplosionComplete;
 
 		// Setup properties
@@ -345,6 +354,7 @@ class Bomb extends AnimatedSprite {
 	}
 
 	update(delta: Ticker): void {
+		super.update(delta);
 		if (this.hasExploded) return;
 
 		// Update position
@@ -360,6 +370,9 @@ class Bomb extends AnimatedSprite {
 		} else if (this.x > config.canvasWidth - this.width / 2) {
 			this.x = config.canvasWidth - this.width / 2;
 			this.vx = -this.vx;
+		}
+		if (this.y >= this.floorY) {
+			this.onHitFloor(this);
 		}
 	}
 
@@ -485,14 +498,6 @@ class Game {
 			this.spawnBomb();
 			this.spawnTimer += 1 / this.spawnRate;
 		}
-
-		// Update bombs
-		for (const bomb of this.bombs) {
-			bomb.update(ticker);
-			if (!bomb.hasExploded && bomb.y >= this.floorY) {
-				this.bombHitFloor(bomb);
-			}
-		}
 	}
 
 	// Bomb Management Methods
@@ -508,6 +513,7 @@ class Game {
 			this.assets.textures.explosion,
 			this.floorY,
 			() => this.catchBomb(bomb),
+			(b) => this.bombHitFloor(b),
 			(b) => this.cleanupBomb(b),
 		);
 
