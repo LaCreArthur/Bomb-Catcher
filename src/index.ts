@@ -16,7 +16,7 @@ const config = {
 
 	// Game settings
 	initialLives: 9,
-	initialSpawnRate: 3.8, // Bombs per second at start
+	initialSpawnRate: 2, // Bombs per second at start
 	initialSpeed: 2, // Pixels per frame at start
 	bombWidth: 80,
 	bombHeight: 80,
@@ -137,7 +137,7 @@ class UIManager {
 			fontFamily: 'Arial',
 			fontSize: 48,
 			fontWeight: 'bold',
-			fill: '#ffff00',
+			fill: '#2fa1c5',
 			stroke: { color: '#000000', width: 6, join: 'round' },
 			dropShadow: { color: '#000000', blur: 5, distance: 3, alpha: 0.5 },
 		}),
@@ -295,7 +295,7 @@ class Bomb extends AnimatedSprite {
 	private vx = 0;
 	private vy = 0;
 	private explosionTextures: Texture[];
-	private floorY: number;
+	private floorY: number = config.canvasHeight - config.floorHeight;
 	public hasExploded = false;
 
 	// Callbacks for bomb events
@@ -306,7 +306,6 @@ class Bomb extends AnimatedSprite {
 	constructor(
 		textures: Texture[],
 		explosionTextures: Texture[],
-		floorY: number,
 		onCatch: () => void,
 		onHitFloor: (bomb: Bomb) => void,
 		onExplosionComplete: (bomb: Bomb) => void,
@@ -314,7 +313,6 @@ class Bomb extends AnimatedSprite {
 		super(textures);
 		this.explosionTextures = explosionTextures;
 
-		this.floorY = floorY;
 		this.onCatch = onCatch;
 		this.onHitFloor = onHitFloor;
 		this.onExplosionComplete = onExplosionComplete;
@@ -367,11 +365,11 @@ class Bomb extends AnimatedSprite {
 		this.rotation += config.bombRotationSpeed * deltaTime;
 
 		// Wall bounce
-		if (this.x < this.width / 2) {
-			this.x = this.width / 2;
+		if (this.x < 0) {
+			this.x = 0;
 			this.vx = -this.vx;
-		} else if (this.x > config.canvasWidth - this.width / 2) {
-			this.x = config.canvasWidth - this.width / 2;
+		} else if (this.x > config.canvasWidth) {
+			this.x = config.canvasWidth;
 			this.vx = -this.vx;
 		}
 		// Floor collision
@@ -392,6 +390,7 @@ class Bomb extends AnimatedSprite {
 	private handleClick = (): void => {
 		if (!this.hasExploded) {
 			this.onCatch();
+			this.eventMode = 'none';
 		}
 	};
 
@@ -417,35 +416,34 @@ class Game {
 	private speed = config.initialSpeed;
 	private spawnTimer = 0;
 
-	// Game elements
 	private bombs: Bomb[] = [];
-	private floor: Sprite;
-	private floorY: number;
 
 	constructor(app: Application, assets: GameAssets) {
 		this.app = app;
 		this.assets = assets;
 		this.ui = new UIManager(app.stage);
 
-		// Create background
+		this.createBackground(app);
+		this.createFloor(assets, app);
+		this.showStartScreen();
+	}
+
+	private createFloor(assets: GameAssets, app: Application) {
+		const floor = new Sprite(assets.textures.floor);
+		floor.width = config.canvasWidth + config.screenShakeIntensity * 2; // Extend slightly beyond canvas width to cover the screen shake effect
+		floor.height = config.floorHeight;
+		floor.x = -config.screenShakeIntensity; // Center the floor
+		floor.y = config.canvasHeight - config.floorHeight + config.screenShakeIntensity;
+		app.stage.addChild(floor);
+	}
+
+	private createBackground(app: Application) {
 		const background = new Sprite(this.assets.textures.background);
 		background.width = config.canvasWidth + config.screenShakeIntensity * 2;
 		background.height = config.canvasHeight + config.screenShakeIntensity * 2;
 		background.x = -config.screenShakeIntensity;
 		background.y = -config.screenShakeIntensity;
 		app.stage.addChild(background);
-
-		// Create floor
-		this.floor = new Sprite(assets.textures.floor);
-		this.floor.width = config.canvasWidth + config.screenShakeIntensity * 2; // Extend slightly beyond canvas width for the screen shake effect
-		this.floor.height = config.floorHeight;
-		this.floor.x = -config.screenShakeIntensity; // Center the floor
-		this.floor.y = config.canvasHeight - config.floorHeight + config.screenShakeIntensity;
-		this.floorY = this.floor.y; // Store floor Y position for collision detection
-		app.stage.addChild(this.floor);
-
-		// Start with the intro screen
-		this.showStartScreen();
 	}
 
 	// Game State Methods
@@ -509,7 +507,6 @@ class Game {
 		const bomb = new Bomb(
 			this.assets.textures.idle,
 			this.assets.textures.explosion,
-			this.floorY,
 			() => this.catchBomb(bomb),
 			(b) => this.bombHitFloor(b),
 			(b) => this.cleanupBomb(b),
