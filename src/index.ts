@@ -42,6 +42,7 @@ const config = {
 	bombExplosionPrefix: 'assets/bomb/Bomb_3_Explosion_00',
 	bombExplosionFrames: 10,
 	floorTexture: 'assets/floor.png',
+	backgroundTexture: 'assets/background.jpg',
 
 	sounds: {
 		catch: 'assets/catch.mp3',
@@ -68,6 +69,7 @@ type GameAssets = {
 		idle: Texture[];
 		explosion: Texture[];
 		floor: Texture;
+		background: Texture;
 	};
 	sounds: {
 		catch?: Sound;
@@ -86,13 +88,14 @@ async function loadAssets(): Promise<GameAssets> {
 		const explosionFrames = Array.from({ length: config.bombExplosionFrames }, (_, i) => `${config.bombExplosionPrefix}${i}.png`);
 
 		// Load all textures at once
-		const textureAssets = await Assets.load<Texture>([...idleFrames, ...explosionFrames, config.floorTexture]);
+		const textureAssets = await Assets.load<Texture>([...idleFrames, ...explosionFrames, config.floorTexture, config.backgroundTexture]);
 
 		// Organize textures by type
 		const textures = {
 			idle: idleFrames.map((path) => textureAssets[path]),
 			explosion: explosionFrames.map((path) => textureAssets[path]),
 			floor: textureAssets[config.floorTexture],
+			background: textureAssets[config.backgroundTexture],
 		};
 
 		// Load sounds
@@ -106,7 +109,7 @@ async function loadAssets(): Promise<GameAssets> {
 	} catch (error) {
 		console.error('Failed to load assets:', error);
 		return {
-			textures: { idle: [], explosion: [], floor: Texture.EMPTY },
+			textures: { idle: [], explosion: [], floor: Texture.EMPTY, background: Texture.EMPTY },
 			sounds: {},
 		};
 	}
@@ -241,8 +244,8 @@ class UIManager {
 
 	showGameUI(score: number, lives: number): void {
 		this.clearAll();
-		this.addText('scoreLabel', `Score: ${score}`, 70, 20, UIManager.Styles.primary, new Point(0.5, 0.5));
-		this.addText('livesLabel', `Lives: ${lives}`, 70, 55, UIManager.Styles.primary, new Point(0.5, 0.5));
+		this.addText('scoreLabel', `Score: ${score}`, 70, 30, UIManager.Styles.primary, new Point(0.5, 0.5));
+		this.addText('livesLabel', `Lives: ${lives}`, 70, 65, UIManager.Styles.primary, new Point(0.5, 0.5));
 	}
 
 	showGameOverScreen(finalScore: number, leaderboard: string, onReplayClick: () => void): void {
@@ -371,6 +374,7 @@ class Bomb extends AnimatedSprite {
 			this.x = config.canvasWidth - this.width / 2;
 			this.vx = -this.vx;
 		}
+		// Floor collision
 		if (this.y >= this.floorY) {
 			this.onHitFloor(this);
 		}
@@ -378,8 +382,6 @@ class Bomb extends AnimatedSprite {
 
 	explode(): void {
 		if (this.hasExploded) return;
-		console.log('Bomb exploded!');
-
 		this.hasExploded = true;
 		this.textures = this.explosionTextures;
 		this.loop = false;
@@ -425,11 +427,20 @@ class Game {
 		this.assets = assets;
 		this.ui = new UIManager(app.stage);
 
+		// Create background
+		const background = new Sprite(this.assets.textures.background);
+		background.width = config.canvasWidth + config.screenShakeIntensity * 2;
+		background.height = config.canvasHeight + config.screenShakeIntensity * 2;
+		background.x = -config.screenShakeIntensity;
+		background.y = -config.screenShakeIntensity;
+		app.stage.addChild(background);
+
 		// Create floor
 		this.floor = new Sprite(assets.textures.floor);
-		this.floor.width = config.canvasWidth;
+		this.floor.width = config.canvasWidth + config.screenShakeIntensity * 2; // Extend slightly beyond canvas width for the screen shake effect
 		this.floor.height = config.floorHeight;
-		this.floor.y = config.canvasHeight - config.floorHeight;
+		this.floor.x = -config.screenShakeIntensity; // Center the floor
+		this.floor.y = config.canvasHeight - config.floorHeight + config.screenShakeIntensity;
 		this.floorY = this.floor.y; // Store floor Y position for collision detection
 		app.stage.addChild(this.floor);
 
@@ -454,10 +465,7 @@ class Game {
 		this.speed = config.initialSpeed;
 		this.spawnTimer = 1 / this.spawnRate;
 
-		// Setup UI for game
 		this.ui.showGameUI(this.score, this.lives);
-
-		// Start game loop
 		this.app.ticker.add(this.update, this);
 	}
 
@@ -465,32 +473,22 @@ class Game {
 		if (this.gameState === GameState.GameOver) return;
 
 		this.gameState = GameState.GameOver;
-
-		// Stop game loop
 		this.app.ticker.remove(this.update, this);
 
-		// Stop animations on bombs to prevent errors
 		this.bombs.forEach((bomb) => {
-			bomb.textures = this.assets.textures.explosion;
-			bomb.gotoAndStop(0);
+			bomb.explode();
 		});
 
-		// Play sound
 		this.assets.sounds.gameover?.play();
-
-		// Save score
 		this.saveScore();
-
-		// Show game over screen
 		this.ui.showGameOverScreen(this.score, this.getLeaderboard(), () => this.showStartScreen());
 	}
 
-	// Main game loop
 	private update(ticker: Ticker): void {
 		if (this.gameState !== GameState.Playing) return;
 
 		const delta = ticker.deltaTime;
-		const deltaSeconds = delta / 60; // Approximate for 60fps
+		const deltaSeconds = delta / 60; // 60fps
 
 		// Handle bomb spawning
 		this.spawnTimer -= deltaSeconds;
@@ -629,7 +627,7 @@ class Game {
 	private getLeaderboard(): string {
 		const scores = this.loadScores();
 		if (scores.length === 0) return 'No scores yet!';
-		return scores.map((score, i) => `${(i + 1).toString().padStart(2)}. ${score.toString().padStart(4)}`).join('\n');
+		return scores.map((score, i) => `${(i + 1).toString().padStart(1)}. ${score.toString().padStart(2)}`).join('\n');
 	}
 }
 
