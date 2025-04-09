@@ -11,6 +11,8 @@ La difficulté augmente progressivement avec:
 - Une vitesse de chute croissante
 - Un nombre de bombes plus important
 
+[**➡️ Le jeu est jouable ici**](https://lacrearthur.github.io/Bomb-Catcher/)
+
 ## Technologies Utilisées
 
 - TypeScript
@@ -31,7 +33,7 @@ npm install
 
 ## Temps Passé sur le Projet
 
-Temps total de développement: environ 12 heures par tranche de 4h par jour sur 3 jours.
+Temps total de développement: environ 12 heures par tranche de 4h par jour sur 3 jours (premiere experience avec Pixi.js et GSAP).
 
 - Mise en place du projet et configuration: 1h
 - Développement de la mécanique de jeu de base: 4h
