@@ -4,6 +4,7 @@ import { AnimatedSprite, Application, Container, Graphics, Sprite, Text, TextSty
 import { GameAssets, loadAssets } from './assets';
 import { Bomb } from './bomb';
 import { config } from './config';
+import { ParticleEmitter } from './particles';
 import { UIManager } from './ui-manager';
 
 // Register GSAP PixiPlugin
@@ -35,12 +36,14 @@ class Game {
 	private spawnTimer = 0;
 
 	private bombs: Bomb[] = [];
+	particleEmitter: ParticleEmitter;
 
 	constructor(app: Application, assets: GameAssets) {
 		this.app = app;
 		this.assets = assets;
 		this.ui = new UIManager(app.stage);
 
+		this.particleEmitter = new ParticleEmitter(app.stage);
 		this.createBackground(app);
 		this.createFloor(assets, app);
 		this.showStartScreen();
@@ -138,10 +141,16 @@ class Game {
 	private catchBomb(bomb: Bomb): void {
 		if (this.gameState !== GameState.Playing) return;
 
-		console.log('Bomb caught!');
-
 		// Play sound
 		this.assets.sounds.catch?.play();
+
+		// Create particles at bomb position
+		this.particleEmitter.emit(bomb.x, bomb.y, 20, {
+			color: 0xffd700, // Gold color for catch
+			minSpeed: 2,
+			maxSpeed: 8,
+			lifetime: 0.7,
+		});
 
 		// Increase score
 		this.score++;
@@ -167,16 +176,11 @@ class Game {
 	private bombHitFloor(bomb: Bomb): void {
 		if (this.gameState !== GameState.Playing || bomb.hasExploded) return;
 
-		console.log('bombHitFloor');
-
-		// Play sound and start explosion
 		this.assets.sounds.explode?.play();
 		bomb.explode();
 
-		// Shake screen
 		this.ui.shakeScreen();
 
-		// Decrease lives
 		this.lives--;
 		this.ui.updateText('livesLabel', `Lives: ${this.lives}`);
 		this.ui.animateElement('livesLabel', {
@@ -186,7 +190,6 @@ class Game {
 			repeat: 1,
 		});
 
-		// Check for game over
 		if (this.lives <= 0) {
 			this.endGame();
 		}
@@ -262,7 +265,7 @@ async function main() {
 	await app.init({
 		width: config.canvasWidth,
 		height: config.canvasHeight,
-		backgroundColor: 0x1099bb,
+		backgroundColor: 0x092e5b,
 		antialias: true,
 	});
 
